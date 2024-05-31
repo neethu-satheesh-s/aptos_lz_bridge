@@ -1,9 +1,10 @@
 [package]
-name = "bridge"
+name = "props_bridge"
 version = "0.0.1"
 
 [addresses]
-bridge = "_"
+props_bridge = "_"
+
 
 [dependencies]
 layerzero = { local = "../../layerzero" }

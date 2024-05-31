@@ -1,9 +1,9 @@
-module bridge::limiter {
+module props_bridge::limiter {
     use aptos_framework::timestamp;
     use std::error;
     use aptos_std::math64::{pow};
 
-    friend bridge::coin_bridge;
+    friend props_bridge::coin_bridge;
 
     const EBRIDGE_CAP_OVERFLOW: u64 = 0x00;
 
@@ -30,7 +30,7 @@ module bridge::limiter {
     }
 
     public(friend) fun set_limiter<CoinType>(enabled: bool, cap_sd: u64, window_sec: u64) acquires Limiter {
-        let twa = borrow_global_mut<Limiter<CoinType>>(@bridge);
+        let twa = borrow_global_mut<Limiter<CoinType>>(@props_bridge);
         twa.enabled = enabled;
         twa.cap_sd = cap_sd;
         twa.window_sec = window_sec;
@@ -39,7 +39,7 @@ module bridge::limiter {
     // new window, inherit half of the prior sum
     // a simple way to approximate a sliding window
     public(friend) fun try_insert<CoinType>(amount_sd: u64) acquires Limiter {
-        let limiter = borrow_global_mut<Limiter<CoinType>>(@bridge);
+        let limiter = borrow_global_mut<Limiter<CoinType>>(@props_bridge);
         if (!limiter.enabled) return;
 
         let now = timestamp::now_seconds();
@@ -60,7 +60,7 @@ module bridge::limiter {
     #[test_only]
     struct FakeCoin {}
 
-    #[test(aptos_framework = @aptos_framework, bridge = @bridge)]
+    #[test(aptos_framework = @aptos_framework, bridge = @props_bridge)]
     fun test_limiter(aptos_framework: &signer, bridge: &signer) acquires Limiter {
         use aptos_framework::aptos_account;
         use std::signer;
@@ -79,25 +79,25 @@ module bridge::limiter {
         // in the same time window
         let time = time + 2 * 3600; // half of the window
         timestamp::update_global_time_for_test_secs(time);
-        let twa = borrow_global<Limiter<FakeCoin>>(@bridge);
+        let twa = borrow_global<Limiter<FakeCoin>>(@props_bridge);
         assert!(twa.sum_sd == 5000, 0);
 
         // in the next time window
         let time = time + 2 * 3600; // half of the window
         timestamp::update_global_time_for_test_secs(time); // 4 hours later
         try_insert<FakeCoin>(1000);
-        let twa = borrow_global<Limiter<FakeCoin>>(@bridge);
+        let twa = borrow_global<Limiter<FakeCoin>>(@props_bridge);
         assert!(twa.sum_sd == 3500, 0); // 2500 + 1000
 
         // in the next 3 time window
         let time = time + 4 * 3600 * 2;
         timestamp::update_global_time_for_test_secs(time);
         try_insert<FakeCoin>(0);
-        let twa = borrow_global<Limiter<FakeCoin>>(@bridge);
+        let twa = borrow_global<Limiter<FakeCoin>>(@props_bridge);
         assert!(twa.sum_sd == 3500 / 4, 0);
     }
 
-    #[test(aptos_framework = @aptos_framework, bridge = @bridge)]
+    #[test(aptos_framework = @aptos_framework, bridge = @props_bridge)]
     #[expected_failure(abort_code = 0x20000, location = Self)]
     fun test_limiter_overflow(aptos_framework: &signer, bridge: &signer) acquires Limiter {
         use aptos_framework::aptos_account;
@@ -115,7 +115,7 @@ module bridge::limiter {
         try_insert<FakeCoin>(10001);
     }
 
-    #[test(aptos_framework = @aptos_framework, bridge = @bridge)]
+    #[test(aptos_framework = @aptos_framework, bridge = @props_bridge)]
     #[expected_failure(abort_code = 0x20000, location = Self)]
     fun test_limiter_overflow2(aptos_framework: &signer, bridge: &signer) acquires Limiter {
         use aptos_framework::aptos_account;
@@ -136,7 +136,7 @@ module bridge::limiter {
         let time = time + 4 * 3600; // half of the window
         timestamp::update_global_time_for_test_secs(time); // 4 hours later
         try_insert<FakeCoin>(1000);
-        let twa = borrow_global<Limiter<FakeCoin>>(@bridge);
+        let twa = borrow_global<Limiter<FakeCoin>>(@props_bridge);
         assert!(twa.sum_sd == 3500, 0); // 2500 + 1000
 
         // overflow

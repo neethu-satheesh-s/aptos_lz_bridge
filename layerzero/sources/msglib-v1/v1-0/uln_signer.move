@@ -4,7 +4,7 @@ module layerzero::uln_signer {
     use aptos_std::table::{Self, Table};
     use layerzero_common::utils::assert_u16;
     use std::signer::address_of;
-    use layerzero_common::acl::{Self, ACL};
+    use layerzero_common::acl1::{Self, ACL};
     use std::error;
 
     const EULN_SIGNER_NO_CONFIG: u64 = 0x00;
@@ -29,7 +29,7 @@ module layerzero::uln_signer {
 
         move_to(account, Config {
             fees: table::new(),
-            acl: acl::empty()
+            acl: acl1::empty()
         });
     }
 
@@ -52,7 +52,7 @@ module layerzero::uln_signer {
         assert_signer_registered(account_addr);
 
         let config = borrow_global_mut<Config>(account_addr);
-        acl::allowlist(&mut config.acl, ua);
+        acl1::allowlist(&mut config.acl, ua);
     }
 
     /// if not in the deny list, add it. Otherwise, remove it.
@@ -61,7 +61,7 @@ module layerzero::uln_signer {
         assert_signer_registered(account_addr);
 
         let config = borrow_global_mut<Config>(account_addr);
-        acl::denylist(&mut config.acl, ua);
+        acl1::denylist(&mut config.acl, ua);
     }
 
 
@@ -73,7 +73,7 @@ module layerzero::uln_signer {
 
         let config = borrow_global<Config>(uln_signer);
 
-        acl::assert_allowed(&config.acl, &ua);
+        acl1::assert_allowed(&config.acl, &ua);
 
         assert!(table::contains(&config.fees, remote_chain_id), EULN_SIGNER_NO_CONFIG);
         let fee = table::borrow(&config.fees, remote_chain_id);
@@ -84,7 +84,7 @@ module layerzero::uln_signer {
         assert_signer_registered(uln_signer);
 
         let config = borrow_global<Config>(uln_signer);
-        acl::is_allowed(&config.acl, &ua)
+        acl1::is_allowed(&config.acl, &ua)
     }
 
     fun assert_signer_registered(account: address) {

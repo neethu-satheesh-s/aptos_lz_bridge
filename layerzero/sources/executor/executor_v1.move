@@ -14,7 +14,7 @@ module layerzero::executor_v1 {
 
     use layerzero_common::utils::{assert_u16, type_address, vector_slice};
     use layerzero_common::serde;
-    use layerzero_common::acl::{Self, ACL};
+    use layerzero_common::acl1::{Self, ACL};
     use layerzero_common::packet::{Self, Packet};
     use executor_auth::executor_cap::ExecutorCapability;
     use executor_auth::executor_cap;
@@ -145,7 +145,7 @@ module layerzero::executor_v1 {
 
         move_to(account, ExecutorConfig {
             fee: table::new(),
-            acl: acl::empty(),
+            acl: acl1::empty(),
         });
     }
 
@@ -212,7 +212,7 @@ module layerzero::executor_v1 {
         assert_executor_registered(account_addr);
 
         let config = borrow_global_mut<ExecutorConfig>(account_addr);
-        acl::allowlist(&mut config.acl, ua);
+        acl1::allowlist(&mut config.acl, ua);
     }
 
     /// if not in the deny list, add it. Otherwise, remove it.
@@ -221,7 +221,7 @@ module layerzero::executor_v1 {
         assert_executor_registered(account_addr);
 
         let config = borrow_global_mut<ExecutorConfig>(account_addr);
-        acl::denylist(&mut config.acl, ua);
+        acl1::denylist(&mut config.acl, ua);
     }
 
     //
@@ -251,7 +251,7 @@ module layerzero::executor_v1 {
 
         // check permission
         let config = borrow_global<ExecutorConfig>(executor);
-        acl::assert_allowed(&config.acl, &ua_address);
+        acl1::assert_allowed(&config.acl, &ua_address);
 
         // use default one if adapter_params is empty
         if (vector::length(&adapter_params) == 0) {
@@ -272,7 +272,7 @@ module layerzero::executor_v1 {
     public fun check_permission(executor: address, ua_address: address): bool acquires ExecutorConfig {
         assert_executor_registered(executor);
         let config = borrow_global<ExecutorConfig>(executor);
-        acl::is_allowed(&config.acl, &ua_address)
+        acl1::is_allowed(&config.acl, &ua_address)
     }
 
     public fun get_default_adapter_params(chain_id: u64): vector<u8> acquires AdapterParamsConfig {

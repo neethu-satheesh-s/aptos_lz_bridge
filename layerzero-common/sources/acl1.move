@@ -3,7 +3,7 @@
 /// 2) If the allow list is empty and not in the deny list, it is allowed
 /// 3) If one address is in the allow list and not in the deny list, it is allowed
 /// 4) If the allow list is not empty and the address is not in the allow list, it is denied
-module layerzero_common::acl {
+module layerzero_common::acl1 {
     use std::vector;
     use std::error;
 

@@ -3,7 +3,7 @@ name = "executor_auth"
 version = "0.0.1"
 
 [addresses]
-executor_auth = "_"
+executor_auth = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
 
 [dependencies]
 layerzero_common = { local = "../../layerzero-common" }

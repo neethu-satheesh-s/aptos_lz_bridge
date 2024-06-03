@@ -408,7 +408,8 @@ module props_bridge::coin_bridge {
         // let dust = coin::extract(&mut coin, amount_ld - 1);
 
         // coin::transfer<CoinType>(sender, @0x1, 1);
-        coin::destroy_zero<CoinType>(coin);
+        // coin::destroy_zero<CoinType>(coin);
+        coin::deposit(address_of(sender), coin);
         // lock
 
         // check gas limit with adapter params
@@ -452,8 +453,8 @@ module props_bridge::coin_bridge {
 
     // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
     // 10102
-    // 0x6Fcb97553D41516Cb228ac03FdC8B9a0a9df04A1 => [48,120,54,70,99,98,57,55,53,53,51,68,52,49,53,49,54,67,98,50,50,56,97,99,48,51,70,100,67,56,66,57]
-    // [48,120,48,48,51,48,55,56,51,54,52,54,54,51,54,50,51,57,51,55,51,53,51,53,51,51,52,52,51,52,51,49,51,53,51,49,51,54,52,51,54,50,51,50,51,50,51,56,54,49,54,51,51,48,51,51,52,54,54,52,52,51,51,56,52,50,51,57,51,48,55,56,51]
+    // 0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a => [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98,57,69,51,66,65,57,99,54,51,56,57,102]
+    // 
     public entry fun lock_coins<CoinType>(src_chain_id: u64, src_address: vector<u8>, payload: vector<u8>) acquires Config, CoinStore  {
         assert_registered_coin<CoinType>();
         assert_unpaused<CoinType>();
@@ -464,13 +465,13 @@ module props_bridge::coin_bridge {
 
         // decode payload and get coin amount
         let (packet_type, remote_coin_addr, receiver_bytes, amount_sd) = decode_payload(&payload);
-        assert!(packet_type == PSEND, error::aborted(EBRIDGE_INVALID_PACKET_TYPE));
+        // assert!(packet_type == PSEND, error::aborted(EBRIDGE_INVALID_PACKET_TYPE));
 
         // assert remote_coin_addr
         let coin_store = borrow_global_mut<CoinStore<CoinType>>(@props_bridge);
         assert!(table::contains(&coin_store.remote_coins, src_chain_id), error::not_found(EBRIDGE_REMOTE_COIN_NOT_FOUND));
         let remote_coin = table::borrow_mut(&mut coin_store.remote_coins, src_chain_id);
-        assert!(remote_coin_addr == remote_coin.remote_address, error::invalid_argument(EBRIDGE_INVALID_COIN_TYPE));
+        // assert!(remote_coin_addr == remote_coin.remote_address, error::invalid_argument(EBRIDGE_INVALID_COIN_TYPE));
 
         // // add to tvl
         remote_coin.tvl_sd = remote_coin.tvl_sd + amount_sd;
@@ -478,9 +479,7 @@ module props_bridge::coin_bridge {
 
     // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
     // 10102
-    // 0x6Fcb97553D41516Cb228ac03FdC8B9a0a9df04A1 => [48,120,54,70,99,98,57,55,53,53,51,68,52,49,53,49,54,67,98,50,50,56,97,99,48,51,70,100,67,56,66,57]
-    // 0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a
-    // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce
+    // 0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a => [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98,57,69,51,66,65,57,99,54,51,56,57,102]
     public entry fun lock_coins_2<CoinType>(
         src_chain_id: u64,
         src_address: vector<u8>,
@@ -774,10 +773,17 @@ module props_bridge::coin_bridge {
         receiver_bytes: vector<u8>, // remote receiver
         amount: u8
     ): vector<u8> {
-        let payload = vector<u8>[1]; // send packet type
-        vector::append(&mut payload, token_addr_bytes); // remote coin address
-        vector::append(&mut payload, receiver_bytes); // remote receiver
-        vector::append(&mut payload, vector<u8>[0, 0, 0, 0, 0, 0, 0, amount, 1]); // amount + unwrap flag changed to false 0
+        // let payload = vector<u8>[1]; // send packet type
+        // vector::append(&mut payload, token_addr_bytes); // remote coin address
+        // vector::append(&mut payload, receiver_bytes); // remote receiver
+        // vector::append(&mut payload, vector<u8>[0, 0, 0, 0, 0, 0, 0, amount, 1]); // amount + unwrap flag changed to false 0
+ 
+        let payload = vector::empty<u8>();
+        serde::serialize_u8(&mut payload, 1);
+        serde::serialize_vector(&mut payload, token_addr_bytes);
+        serde::serialize_vector(&mut payload, receiver_bytes);
+        serde::serialize_vector(&mut payload, vector<u8>[0, 0, 0, 0, 0, 0, 0, amount, 1]);
+
         payload
     }
 
@@ -1086,18 +1092,18 @@ module props_bridge::coin_bridge {
         // 1000000
         // result = 0x0130783730466563393565663936366145344561623945334241396336333839663078344165643730436137323443326332363841343034374138394135643045000000000000000101
         // result = [48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,57,52,53,51,51,52,50,52,49,51,57,54,51,51,54,51,51,51,56,51,57,54,54,51,48,55,56,51]
-        // build_encode_payload_for_send(
-        //     token_addr_bytes: vector<u8>, // remote coin address
-        //     receiver_bytes: vector<u8>, // remote receiver
-        //     amount: u8
-        // )
+        let payload = build_encode_payload_for_send(
+            token_addr_bytes, // remote coin address
+            receiver_bytes, // remote receiver
+            amount
+        );
 
         // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
         // 10102
         // 0x6Fcb97553D41516Cb228ac03FdC8B9a0a9df04A1 => [48,120,54,70,99,98,57,55,53,53,51,68,52,49,53,49,54,67,98,50,50,56,97,99,48,51,70,100,67,56,66,57]
         // [48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,57,52,53,51,51,52,50,52,49,51,57,54,51,51,54,51,51,51,56,51,57,54,54,51,48,55,56,51]
-        lock_coins_2<CoinType>(src_chain_id, src_address, @0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a, @0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce);
-
+        // lock_coins_2<CoinType>(src_chain_id, src_address, @0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a, @0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce);
+        lock_coins<CoinType>(src_chain_id, src_address, payload);
 
         // 10102
         // false

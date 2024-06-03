@@ -159,6 +159,8 @@ aptos move create-resource-account-and-publish-package --seed [seed] --address-n
 
 ## Example Function Invoking commands
 
+aptos move publish --named-addresses props_bridge=0x87ab7d47a9b0ac84b856168b68fff06408cc5f1c691a6c5366c3ab116d76d93c
+
 ```
 aptos move create-resource-account-and-publish-package --seed 6000 --address-name propbase --named-addresses source_addr=87ab7d47a9b0ac84b856168b68fff06408cc5f1c691a6c5366c3ab116d76d93c --included-artifacts none --profile admin
 

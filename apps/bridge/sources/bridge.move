@@ -205,15 +205,7 @@ module props_bridge::coin_bridge {
 
         // let (burn_cap, freeze_cap, mint_cap) = coin::initialize<CoinType>(account, name, symbol, decimals, true);
 
-let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name, symbol, decimals, true);
-
-// initialize<FakeMoney>(
-//             account,
-//             string::utf8(b"Fake money"),
-//             string::utf8(b"FMD"),
-//             decimals,
-//             monitor_supply
-//         )
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name, symbol, decimals, true);
 
         let type_store = borrow_global_mut<CoinTypeStore>(@props_bridge);
         vector::push_back(&mut type_store.types, type_info::type_of<CoinType>());
@@ -471,7 +463,7 @@ let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name
         remote::assert_remote(@props_bridge, src_chain_id, src_address);
 
         // decode payload and get coin amount
-        let (remote_coin_addr, receiver_bytes, amount_sd, packet_type) = decode_payload(&payload);
+        let (packet_type, remote_coin_addr, receiver_bytes, amount_sd) = decode_payload(&payload);
         assert!(packet_type == PSEND, error::aborted(EBRIDGE_INVALID_PACKET_TYPE));
 
         // assert remote_coin_addr
@@ -483,6 +475,51 @@ let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name
         // // add to tvl
         remote_coin.tvl_sd = remote_coin.tvl_sd + amount_sd;
     }
+
+    // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
+    // 10102
+    // 0x6Fcb97553D41516Cb228ac03FdC8B9a0a9df04A1 => [48,120,54,70,99,98,57,55,53,53,51,68,52,49,53,49,54,67,98,50,50,56,97,99,48,51,70,100,67,56,66,57]
+    // 0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a
+    // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce
+    public entry fun lock_coins_2<CoinType>(
+        src_chain_id: u64,
+        src_address: vector<u8>,
+        token_address: address,
+        receive_address: address
+    ) acquires Config, CoinStore  {
+        assert_registered_coin<CoinType>();
+        assert_unpaused<CoinType>();
+        assert_u16(src_chain_id);
+
+        // assert the payload is valid
+        remote::assert_remote(@props_bridge, src_chain_id, src_address);
+
+        // decode payload and get coin amount
+
+         let token_addr_bytes = bcs::to_bytes(&@0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a);
+        let receiver_bytes = bcs::to_bytes(&@0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce);
+        let payload = encode_send_payload(
+            token_addr_bytes,
+            receiver_bytes,
+            1,
+            true
+        );
+        let (packet_type, remote_coin_addr, receiver_bytes, amount_sd) = decode_payload(&bcs::to_bytes(&payload));
+        assert!(packet_type == PSEND, error::aborted(EBRIDGE_INVALID_PACKET_TYPE));
+
+        // assert remote_coin_addr
+        let coin_store = borrow_global_mut<CoinStore<CoinType>>(@props_bridge);
+        assert!(table::contains(&coin_store.remote_coins, src_chain_id), error::not_found(EBRIDGE_REMOTE_COIN_NOT_FOUND));
+        let remote_coin = table::borrow_mut(&mut coin_store.remote_coins, src_chain_id);
+        assert!(remote_coin_addr == remote_coin.remote_address, error::invalid_argument(EBRIDGE_INVALID_COIN_TYPE));
+
+        // // add to tvl
+        remote_coin.tvl_sd = remote_coin.tvl_sd + amount_sd;
+    }
+
+    
+
+   
 
 
     // 161
@@ -680,14 +717,14 @@ let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name
     }
 
     // decode payload: packet type(1) + remote token(32) + receiver(32) + amount(8)
-    fun decode_payload(payload: &vector<u8>): (vector<u8>, vector<u8>, u64, u64) {
+    fun decode_payload(payload: &vector<u8>): (u8, vector<u8>, vector<u8>, u64) {
         assert_length(payload, 73);
 
         let packet_type = serde::deserialize_u8(&vector_slice(payload, 0, 1));
         let remote_coin_addr = vector_slice(payload, 1, 33);
         let receiver_bytes = vector_slice(payload, 33, 65);
         let amount_sd = serde::deserialize_u64(&vector_slice(payload, 65, 73));
-        (remote_coin_addr, receiver_bytes, amount_sd, packet_type)
+        (packet_type, remote_coin_addr, receiver_bytes, amount_sd)
     }
 
     fun check_adapter_params(dst_chain_id: u64, adapter_params: &vector<u8>) acquires Config {
@@ -726,8 +763,11 @@ let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name
         payload
     }
 
-    // bnb usdt  deploy
+    // bnb usdt  0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a  = [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98,57,69,51,66,65,57,99,54,51,56,57,102]
     // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65,52,48,52,55,65,56,57,65,53,100,48,69]
+    // 1
+    // result = 0x0130783730466563393565663936366145344561623945334241396336333839663078344165643730436137323443326332363841343034374138394135643045000000000000000101
+    // result = [48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,57,52,53,51,51,52,50,52,49,51,57,54,51,51,54,51,51,51,56,51,57,54,54,51,48,55,56,51]
     #[view]
     public fun build_encode_payload_for_send(
         token_addr_bytes: vector<u8>, // remote coin address
@@ -737,7 +777,7 @@ let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name
         let payload = vector<u8>[1]; // send packet type
         vector::append(&mut payload, token_addr_bytes); // remote coin address
         vector::append(&mut payload, receiver_bytes); // remote receiver
-        vector::append(&mut payload, vector<u8>[0, 0, 0, 0, 0, 0, 0, amount, 1]); // amount + unwrap flag
+        vector::append(&mut payload, vector<u8>[0, 0, 0, 0, 0, 0, 0, amount, 1]); // amount + unwrap flag changed to false 0
         payload
     }
 
@@ -944,6 +984,11 @@ let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name
         // 161
         // 0x9fa161D01526309dc7fca950463473cd2BD982C4 => [48,120,57,102,97,49,54,49,68,48,49,53,50,54,51,48,57,100,99,55,102,99,97,57,53,48,52,54,51,52,55,51]
         // false
+
+
+        // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
+        // remote_chain_id - 10102
+        // remote_coin_addr_bytes = 0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a => [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98,57,69,51,66,65,57,99,54,51,56,57,102]
         set_remote_coin<USDC>(bridge_root, remote_chain_id, remote_coin_addr_bytes, false);
         let coin_store = borrow_global<CoinStore<USDC>>(local_bridge_addr);
         assert!(coin_store.remote_chains == vector<u64>[remote_chain_id], 0);
@@ -981,7 +1026,7 @@ let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name
         // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65,52,48,52,55,65,56,57,65,53,100,48,69]
         // 1000000
         // 0x003078364663623937353533443431353136436232323861633033466443384239307834416564373043613732344332633236384134303437413839413564304500000000000f4240
-        let payload = build_receive_coin_payload(remote_bridge_addr_bytes, alice_addr_bytes, amount_sd);
+        // let payload = build_receive_coin_payload(remote_bridge_addr_bytes, alice_addr_bytes, amount_sd);
         // let emitted_packet = packet::new_packet(remote_chain_id, remote_bridge_addr_bytes, local_chain_id, local_bridge_addr_bytes, nonce, payload);
 
         // let lz_type = vector::borrow(&lz_receive_types(
@@ -1036,19 +1081,22 @@ let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name
         let half_amount = expected_balance / 2;
 
 
-        // bnb usdt  deploy
+        // bnb usdt  0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a  = [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98,57,69,51,66,65,57,99,54,51,56,57,102]
         // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65,52,48,52,55,65,56,57,65,53,100,48,69]
-        build_encode_payload_for_send(
-            token_addr_bytes: vector<u8>, // remote coin address
-            receiver_bytes: vector<u8>, // remote receiver
-            amount: u8
-        )
+        // 1000000
+        // result = 0x0130783730466563393565663936366145344561623945334241396336333839663078344165643730436137323443326332363841343034374138394135643045000000000000000101
+        // result = [48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,57,52,53,51,51,52,50,52,49,51,57,54,51,51,54,51,51,51,56,51,57,54,54,51,48,55,56,51]
+        // build_encode_payload_for_send(
+        //     token_addr_bytes: vector<u8>, // remote coin address
+        //     receiver_bytes: vector<u8>, // remote receiver
+        //     amount: u8
+        // )
 
         // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
         // 10102
         // 0x6Fcb97553D41516Cb228ac03FdC8B9a0a9df04A1 => [48,120,54,70,99,98,57,55,53,53,51,68,52,49,53,49,54,67,98,50,50,56,97,99,48,51,70,100,67,56,66,57]
-        // [48,120,48,48,51,48,55,56,51,54,52,54,54,51,54,50,51,57,51,55,51,53,51,53,51,51,52,52,51,52,51,49,51,53,51,49,51,54,52,51,54,50,51,50,51,50,51,56,54,49,54,51,51,48,51,51,52,54,54,52,52,51,51,56,52,50,51,57,51,48,55,56,51]
-        lock_coins<CoinType>(src_chain_id, src_address, payload);
+        // [48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,57,52,53,51,51,52,50,52,49,51,57,54,51,51,54,51,51,51,56,51,57,54,54,51,48,55,56,51]
+        lock_coins_2<CoinType>(src_chain_id, src_address, @0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a, @0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce);
 
 
         // 10102
@@ -1062,7 +1110,7 @@ let (burn_cap, freeze_cap, mint_cap) = coin::initialize<FakeMoney>(account, name
         // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
         // 10102
         // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65,52,48,52,55,65,56,57,65,53,100,48,69]
-        // 1000000
+        // 1000000 - 1 USDT
         // 23384782
         // 0
         // false

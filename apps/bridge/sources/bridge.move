@@ -253,22 +253,33 @@ module props_bridge::coin_bridge {
     ) acquires CoinStore, CoinTypeStore {
         assert_signer(account, @props_bridge);
         assert_u16(remote_chain_id);
-        assert_length(&remote_coin_addr, 32);
+        assert_length(&remote_coin_addr, 20);
         assert_registered_coin<CoinType>();
 
         let coin_store = borrow_global_mut<CoinStore<CoinType>>(@props_bridge);
-        assert!(!table::contains(&coin_store.remote_coins, remote_chain_id), error::invalid_argument(EBRIDGE_COIN_ALREADY_EXISTS));
+        // assert!(!table::contains(&coin_store.remote_coins, remote_chain_id), error::invalid_argument(EBRIDGE_COIN_ALREADY_EXISTS));
 
         let remote_coin = RemoteCoin {
             remote_address: remote_coin_addr,
             tvl_sd: 0,
             unwrappable,
         };
-        table::add(&mut coin_store.remote_coins, remote_chain_id, remote_coin);
+        if(table::contains(&coin_store.remote_coins, remote_chain_id)) {
+            table::upsert(&mut coin_store.remote_coins, remote_chain_id, remote_coin);
+        } else {
+            table::add(&mut coin_store.remote_coins, remote_chain_id, remote_coin);
+        };
         vector::push_back(&mut coin_store.remote_chains, remote_chain_id);
 
         let type_store = borrow_global_mut<CoinTypeStore>(@props_bridge);
-        table::add(&mut type_store.type_lookup, Path { remote_chain_id, remote_coin_addr }, type_info::type_of<CoinType>());
+
+        if(table::contains(&type_store.type_lookup, Path { remote_chain_id, remote_coin_addr })) {
+            table::upsert(&mut type_store.type_lookup, Path { remote_chain_id, remote_coin_addr }, type_info::type_of<CoinType>());
+        } else {
+            table::add(&mut type_store.type_lookup, Path { remote_chain_id, remote_coin_addr }, type_info::type_of<CoinType>());
+        };
+
+
     }
 
     public entry fun set_global_pause(account: &signer, paused: bool) acquires Config {
@@ -384,7 +395,7 @@ module props_bridge::coin_bridge {
         assert_registered_coin<CoinType>();
         assert_unpaused<CoinType>();
         assert_u16(dst_chain_id);
-        assert_length(&dst_receiver, 32);
+        assert_length(&dst_receiver, 20);
 
         // assert that the remote coin is configured
         let coin_store = borrow_global_mut<CoinStore<CoinType>>(@props_bridge);
@@ -396,7 +407,7 @@ module props_bridge::coin_bridge {
         assert!(amount_sd > 0, error::invalid_argument(EBRIDGE_SENDING_AMOUNT_TOO_FEW));
 
         // try to insert into the limiter. abort if overflowed
-        limiter::try_insert<CoinType>(amount_sd);
+        // limiter::try_insert<CoinType>(amount_sd);
 
         // assert remote chain has enough liquidity
         let remote_coin = table::borrow_mut(&mut coin_store.remote_coins, dst_chain_id);
@@ -689,8 +700,8 @@ module props_bridge::coin_bridge {
 
     // encode payload: packet type(1) + remote token(32) + receiver(32) + amount(8) + unwarp flag(1)
     fun encode_send_payload(dst_coin_addr: vector<u8>, dst_receiver: vector<u8>, amount_sd: u64, unwrap: bool): vector<u8> {
-        assert_length(&dst_coin_addr, 32);
-        assert_length(&dst_receiver, 32);
+        assert_length(&dst_coin_addr, 20);
+        assert_length(&dst_receiver, 20);
 
         let payload = vector::empty<u8>();
         serde::serialize_u8(&mut payload, PSEND);
@@ -715,14 +726,17 @@ module props_bridge::coin_bridge {
         (remote_coin_addr, receiver_bytes, amount_sd)
     }
 
-    // decode payload: packet type(1) + remote token(32) + receiver(32) + amount(8)
+    // decode payload: packet type(1) + remote token(20) + receiver(20) + amount(8)
     fun decode_payload(payload: &vector<u8>): (u8, vector<u8>, vector<u8>, u64) {
-        assert_length(payload, 73);
+        assert_length(payload, 49);
 
         let packet_type = serde::deserialize_u8(&vector_slice(payload, 0, 1));
-        let remote_coin_addr = vector_slice(payload, 1, 33);
-        let receiver_bytes = vector_slice(payload, 33, 65);
-        let amount_sd = serde::deserialize_u64(&vector_slice(payload, 65, 73));
+        let remote_coin_addr = vector_slice(payload, 1, 21);
+        // let receiver_bytes = vector_slice(payload, 33, 65);
+        // let amount_sd = serde::deserialize_u64(&vector_slice(payload, 65, 73));
+
+        let receiver_bytes = vector_slice(payload, 21, 41);
+        let amount_sd = serde::deserialize_u64(&vector_slice(payload, 41, 49));
         (packet_type, remote_coin_addr, receiver_bytes, amount_sd)
     }
 
@@ -761,12 +775,15 @@ module props_bridge::coin_bridge {
         serde::serialize_u64(&mut payload, amount);
         payload
     }
-
     // bnb usdt  0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a  = [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98,57,69,51,66,65,57,99,54,51,56,57,102]
-    // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65,52,48,52,55,65,56,57,65,53,100,48,69]
-    // 1
     // result = 0x0130783730466563393565663936366145344561623945334241396336333839663078344165643730436137323443326332363841343034374138394135643045000000000000000101
     // result = [48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,57,52,53,51,51,52,50,52,49,51,57,54,51,51,54,51,51,51,56,51,57,54,54,51,48,55,56,51]
+    
+    // avalanche fuji usdt 0xDb8e825702562B2bC6e82aaAF6aB6E15C7D042b1 - [48,120,68,98,56,101,56,50,53,55,48,50,53,54,50,66,50,98,67,54,101,56,50,97,97,65,70,54,97,66,54,69]
+    // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65,52,48,52,55,65,56,57,65,53,100,48,69]
+    // 1
+    // result = 0x0130784462386538323537303235363242326243366538326161414636614236453078344165643730436137323443326332363841000000000000000101
+    // result = [48,120,48,49,51,48,55,56,52,52,54,50,51,56,54,53,51,56,51,50,51,53,51,55,51,48,51,50,51,53,51,54,51,50,52,50,51,50,54,50,52,51,51,54,51,48,55,56,51]
     #[view]
     public fun build_encode_payload_for_send(
         token_addr_bytes: vector<u8>, // remote coin address
@@ -954,6 +971,14 @@ module props_bridge::coin_bridge {
         let remote_bridge_addr = @props_bridge;
         let remote_bridge_addr_bytes = bcs::to_bytes(&remote_bridge_addr);
         let local_bridge_addr_bytes = bcs::to_bytes(&local_bridge_addr);
+
+        // contract deployer admin
+        // 10102
+        // bnb app oft - 0x8c140202C873139F03C6d8CAbB7ce82Fb9D1eE00
+
+        // contract deployer admin
+        // 10106
+        // avalanche fuji app oft - 0x785c702BEa924333BB8de8C88E99F59A46ba1b0B - [48,120,55,56,53,99,55,48,50,66,69,97,57,50,52,51,51,51,66,66,56,100,101,56,67,56,56,69,57,57,70,53]
         remote::set(bridge_root, remote_chain_id, remote_bridge_addr_bytes);
 
         let confirmations_bytes = vector::empty();
@@ -968,6 +993,12 @@ module props_bridge::coin_bridge {
         // config coin
         let decimals = 8;
         let rate = 100; // (8 - 6) ** 10
+
+        // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
+        // usdt
+        // USDT
+        // 6
+        // 1000000000000
         register_coin<USDC>(bridge_root, string::utf8(b"USDC"), string::utf8(b"USDC"), decimals, 1000000000000);
         let remote_coin_addr = @props_bridge;
         let remote_coin_addr_bytes = bcs::to_bytes(&remote_coin_addr);
@@ -995,6 +1026,10 @@ module props_bridge::coin_bridge {
         // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
         // remote_chain_id - 10102
         // remote_coin_addr_bytes = 0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a => [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98,57,69,51,66,65,57,99,54,51,56,57,102]
+        
+        // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
+        // 10106
+        // avalanche fuji usdt - 0xDb8e825702562B2bC6e82aaAF6aB6E15C7D042b1 - [48,120,68,98,56,101,56,50,53,55,48,50,53,54,50,66,50,98,67,54]
         set_remote_coin<USDC>(bridge_root, remote_chain_id, remote_coin_addr_bytes, false);
         let coin_store = borrow_global<CoinStore<USDC>>(local_bridge_addr);
         assert!(coin_store.remote_chains == vector<u64>[remote_chain_id], 0);
@@ -1087,11 +1122,15 @@ module props_bridge::coin_bridge {
         let half_amount = expected_balance / 2;
 
 
-        // bnb usdt  0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a  = [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98,57,69,51,66,65,57,99,54,51,56,57,102]
-        // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65,52,48,52,55,65,56,57,65,53,100,48,69]
-        // 1000000
-        // result = 0x0130783730466563393565663936366145344561623945334241396336333839663078344165643730436137323443326332363841343034374138394135643045000000000000000101
-        // result = [48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,57,52,53,51,51,52,50,52,49,51,57,54,51,51,54,51,51,51,56,51,57,54,54,51,48,55,56,51]
+        // bnb usdt  0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a  = [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98]
+        // result = 0x0130783730466563393565663936366145344561623078344165643730436137323443326332363841000000000000000101
+        // result = [48,120,52,65,101,48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,48,55,56,51,52,52,49,54,53,54,52,51,55,51,48,52,51,54,49,51,55,51,50]
+
+        // avalanche fuji usdt  0xDb8e825702562B2bC6e82aaAF6aB6E15C7D042b1  = [48,120,68,98,56,101,56,50,53,55,48,50,53,54,50,66,50,98,67,54]
+        // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65]
+        // 1
+        // result = 0x0130784462386538323537303235363242326243363078344165643730436137323443326332363841000000000000000101
+        // result = [48,120,48,49,51,48,55,56,52,52,54,50,51,56,54,53,51,56,51,50,51,53,51,55,51,48,51,50,51,53,51,54,51,50,52,50,51,50,54,50,52,51,51,54,51,48,55,56,51]
         let payload = build_encode_payload_for_send(
             token_addr_bytes, // remote coin address
             receiver_bytes, // remote receiver
@@ -1100,24 +1139,33 @@ module props_bridge::coin_bridge {
 
         // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
         // 10102
-        // 0x6Fcb97553D41516Cb228ac03FdC8B9a0a9df04A1 => [48,120,54,70,99,98,57,55,53,53,51,68,52,49,53,49,54,67,98,50,50,56,97,99,48,51,70,100,67,56,66,57]
-        // [48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,57,52,53,51,51,52,50,52,49,51,57,54,51,51,54,51,51,51,56,51,57,54,54,51,48,55,56,51]
-        // lock_coins_2<CoinType>(src_chain_id, src_address, @0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a, @0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce);
+        // bnb usdt  0x70Fec95ef966aE4Eab9E3BA9c6389fbDf30F3c4a  = [48,120,55,48,70,101,99,57,53,101,102,57,54,54,97,69,52,69,97,98]
+        // payload - [48,120,52,65,101,48,120,48,49,51,48,55,56,51,55,51,48,52,54,54,53,54,51,51,57,51,53,54,53,54,54,51,57,51,54,51,54,54,49,52,53,51,52,52,53,54,49,54,50,51,48,55,56,51,52,52,49,54,53,54,52,51,55,51,48,52,51,54,49,51,55,51,50]
+
+        // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
+        // 10106
+        // avalanche fuji app oft - 0x785c702BEa924333BB8de8C88E99F59A46ba1b0B - [48,120,55,56,53,99,55,48,50,66,69,97,57,50,52,51,51,51,66,66,56,100,101,56,67,56,56,69,57,57,70,53]
+        // [48,120,48,49,51,48,55,56,52,52,54,50,51,56,54,53,51,56,51,50,51,53,51,55,51,48,51,50,51,53,51,54,51,50,52,50,51,50,54,50,52,51,51,54,51,48,55,56,51]
         lock_coins<CoinType>(src_chain_id, src_address, payload);
 
         // 10102
+
+        // 10106
         // false
         // []
         // []
-        // fee = 23384782
+        // bnb fee = 23384782
+        // avalanche fuji - 6650725
         let (fee, _) = quote_fee(remote_chain_id, false, adapter_params, msglib_params);
         
         
-        // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
         // 10102
-        // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65,52,48,52,55,65,56,57,65,53,100,48,69]
+
+        // 0xea33def69b4bce19afe062e48581d9bc8d7b8d11e154c007a6325f2a45146b53::usdt::USDT
+        // 10106
+        // 0x4Aed70Ca724C2c268A4047A89A5d0Ee5Ee3D92ce => [48,120,52,65,101,100,55,48,67,97,55,50,52,67,50,99,50,54,56,65]
         // 1000000 - 1 USDT
-        // 23384782
+        // 6650725  // 23384782
         // 0
         // false
         // []
